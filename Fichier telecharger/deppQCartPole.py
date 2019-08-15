@@ -7,7 +7,7 @@ from tensorflow.python.keras.models import Sequential
 from tensorflow.python.keras.layers import Dense
 from tensorflow.python.keras.optimizers import Adam
 
-EPISODES = 1000
+EPISODES = 100
 
 class DQNAgent:
     def __init__(self, state_size, action_size):
@@ -88,7 +88,14 @@ if __name__ == "__main__":
                 agent.replay(batch_size)
         # if e % 10 == 0:
         #     agent.save("./save/cartpole-dqn.h5")
-    for in range (100)
-    {
-        env.
-    }
+    state = env.reset()
+    state = np.reshape(state, [1, state_size])
+    for i in range (1000):
+        action = agent.act(state)
+        env.step(action)
+        env.render()
+        state, reward, done, _ = env.step(action)
+        if done :
+            state =env.reset()
+        state = np.reshape(state, [1, state_size])
+    
