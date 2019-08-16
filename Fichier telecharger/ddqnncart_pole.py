@@ -6,8 +6,11 @@ from collections import deque
 from tensorflow.python.keras.models import Sequential
 from tensorflow.python.keras.layers import Dense
 from tensorflow.python.keras.optimizers import Adam
+from tensorflow.python.keras import backend as K
 
-EPISODES = 500
+import tensorflow as tf
+
+EPISODES = 5000
 
 class DQNAgent:
     def __init__(self, state_size, action_size):
@@ -17,9 +20,25 @@ class DQNAgent:
         self.gamma = 0.95    # discount rate
         self.epsilon = 1.0  # exploration rate
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.999
+        self.epsilon_decay = 0.99
         self.learning_rate = 0.001
         self.model = self._build_model()
+        self.target_model = self._build_model()
+        self.update_target_model()
+
+    """Huber loss for Q Learning
+    References: https://en.wikipedia.org/wiki/Huber_loss
+                https://www.tensorflow.org/api_docs/python/tf/losses/huber_loss
+    """
+
+    def _huber_loss(self, y_true, y_pred, clip_delta=1.0):
+        error = y_true - y_pred
+        cond  = K.abs(error) <= clip_delta
+
+        squared_loss = 0.5 * K.square(error)
+        quadratic_loss = 0.5 * K.square(clip_delta) + clip_delta * (K.abs(error) - clip_delta)
+
+        return K.mean(tf.where(cond, squared_loss, quadratic_loss))
 
     def _build_model(self):
         # Neural Net for Deep-Q learning Model
@@ -27,9 +46,13 @@ class DQNAgent:
         model.add(Dense(24, input_dim=self.state_size, activation='relu'))
         model.add(Dense(24, activation='relu'))
         model.add(Dense(self.action_size, activation='linear'))
-        model.compile(loss='mse',
+        model.compile(loss=self._huber_loss,
                       optimizer=Adam(lr=self.learning_rate))
         return model
+
+    def update_target_model(self):
+        # copy weights from model to target_model
+        self.target_model.set_weights(self.model.get_weights())
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
@@ -43,13 +66,15 @@ class DQNAgent:
     def replay(self, batch_size):
         minibatch = random.sample(self.memory, batch_size)
         for state, action, reward, next_state, done in minibatch:
-            target = reward
-            if not done:
-                target = (reward + self.gamma *
-                          np.amax(self.model.predict(next_state)[0]))
-            target_f = self.model.predict(state)
-            target_f[0][action] = target
-            self.model.fit(state, target_f, epochs=1, verbose=0)
+            target = self.model.predict(state)
+            if done:
+                target[0][action] = reward
+            else:
+                # a = self.model.predict(next_state)[0]
+                t = self.target_model.predict(next_state)[0]
+                target[0][action] = reward + self.gamma * np.amax(t)
+                # target[0][action] = reward + self.gamma * t[np.argmax(a)]
+            self.model.fit(state, target, epochs=1, verbose=0)
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 
@@ -65,7 +90,7 @@ if __name__ == "__main__":
     state_size = env.observation_space.shape[0]
     action_size = env.action_space.n
     agent = DQNAgent(state_size, action_size)
-    # agent.load("./save/cartpole-dqn.h5")
+    # agent.load("./save/cartpole-ddqn.h5")
     done = False
     batch_size = 32
 
@@ -81,21 +106,11 @@ if __name__ == "__main__":
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             if done:
+                agent.update_target_model()
                 print("episode: {}/{}, score: {}, e: {:.2}"
                       .format(e, EPISODES, time, agent.epsilon))
                 break
             if len(agent.memory) > batch_size:
                 agent.replay(batch_size)
         # if e % 10 == 0:
-        #     agent.save("./save/cartpole-dqn.h5")
-    state = env.reset()
-    state = np.reshape(state, [1, state_size])
-    for i in range (1000):
-        action = agent.act(state)
-        env.step(action)
-        env.render()
-        state, reward, done, _ = env.step(action)
-        if done :
-            state =env.reset()
-        state = np.reshape(state, [1, state_size])
-    
+        #     agent.save("./save/cartpole-ddqn.h5")
